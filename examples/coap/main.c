@@ -27,6 +27,22 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <strings.h>
+#include <string.h>
+
+#include <sys/ioctl.h>
+#include <assert.h>
+#include <err.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include "native_internal.h"
+
+#include <net/if.h>
+#include <linux/if_tun.h>
+#include <linux/if_ether.h>
 
 #include "coap.h"
 
@@ -37,40 +53,60 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
     puts("Starting the RIOT\n");
-    int fd;
+    int fd,tap_fd;
+    const char *clonedev = "/dev/net/tun";
+    char *name = "tap0";
     struct sockaddr_in6 servaddr, cliaddr;
-    uint8_t buf[4096];//maybe need bigger becouse IPv6
+    struct ifreq ifr;
+    uint8_t buf[4096];
     uint8_t scratch_raw[4096];
     coap_rw_buffer_t scratch_buf = {scratch_raw, sizeof(scratch_raw)};
 
     fd = socket(AF_INET6,SOCK_DGRAM,0);//Socket file descriptor init
 
-
     bzero(&servaddr,sizeof(servaddr));
     servaddr.sin6_family = AF_INET6;//inet family
     servaddr.sin6_flowinfo = 0;//??
 
-    servaddr.sin6_addr.s6_addr[0] = (uint8_t)0x20;//IPv6 Address 1
-    servaddr.sin6_addr.s6_addr[1] = (uint8_t)0x01;
-    servaddr.sin6_addr.s6_addr[2] = (uint8_t)0x0d;//IPv6 Address 2
-    servaddr.sin6_addr.s6_addr[3] = (uint8_t)0xb8;
+    servaddr.sin6_addr.s6_addr[0] = (uint8_t)0x30;//IPv6 Address 1
+    servaddr.sin6_addr.s6_addr[1] = (uint8_t)0x00;
+    servaddr.sin6_addr.s6_addr[2] = (uint8_t)0x00;//IPv6 Address 2
+    servaddr.sin6_addr.s6_addr[3] = (uint8_t)0x00;
     servaddr.sin6_addr.s6_addr[4] = (uint8_t)0x00;//IPv6 Address 3
     servaddr.sin6_addr.s6_addr[5] = (uint8_t)0x00;
     servaddr.sin6_addr.s6_addr[6] = (uint8_t)0x00;//IPv6 Address 4
     servaddr.sin6_addr.s6_addr[7] = (uint8_t)0x00;
-    servaddr.sin6_addr.s6_addr[8] = (uint8_t)0x00;//IPv6 Address 5
-    servaddr.sin6_addr.s6_addr[9] = (uint8_t)0x00;
-    servaddr.sin6_addr.s6_addr[10] = (uint8_t)0x00;//IPv6 Address 6
-    servaddr.sin6_addr.s6_addr[11] = (uint8_t)0x00;
-    servaddr.sin6_addr.s6_addr[12] = (uint8_t)0x00;//IPv6 Address 7
-    servaddr.sin6_addr.s6_addr[13] = (uint8_t)0x00;
+    servaddr.sin6_addr.s6_addr[8] = (uint8_t)0x11;//IPv6 Address 5
+    servaddr.sin6_addr.s6_addr[9] = (uint8_t)0x11;
+    servaddr.sin6_addr.s6_addr[10] = (uint8_t)0x22;//IPv6 Address 6
+    servaddr.sin6_addr.s6_addr[11] = (uint8_t)0x22;
+    servaddr.sin6_addr.s6_addr[12] = (uint8_t)0x33;//IPv6 Address 7
+    servaddr.sin6_addr.s6_addr[13] = (uint8_t)0x33;
     servaddr.sin6_addr.s6_addr[14] = (uint8_t)0x00;//IPv6 Address 8
-    servaddr.sin6_addr.s6_addr[15] = (uint8_t)0x02;
+    servaddr.sin6_addr.s6_addr[15] = (uint8_t)0x01;
 
 
 
     servaddr.sin6_port = htons(PORT);		//PORT (5683)
     bind(fd,(struct sockaddr *)&servaddr, sizeof(servaddr));
+
+//Set TAP device up, give it local ipv6 address
+    /* implicitly create the tap interface */
+    if ((tap_fd = real_open(clonedev , O_RDWR)) == -1) {
+        err(EXIT_FAILURE, "open(%s)", clonedev);
+    }
+    memset(&ifr, 0, sizeof(ifr));
+    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+    strncpy(ifr.ifr_name, name, IFNAMSIZ);
+    if (real_ioctl(tap_fd, TUNSETIFF, (void *)&ifr) == -1) {
+        _native_in_syscall++;
+        warn("ioctl TUNSETIFF");
+        warnx("probably the tap interface (%s) does not exist or is already in use", name);
+        real_exit(EXIT_FAILURE);
+    }
+//TODO Add Global IP
+
+
 
     endpoint_setup();
 
