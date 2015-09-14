@@ -28,11 +28,14 @@
 #include <string.h>
 
 #include "shell.h"
+#include "coap.h"
 
-extern int coap_cmd(int argc, char **argv);
+extern int coap_client_setup(int argc, char **argv);
+int coap_cmd(int argc, char **argv);
 
 static const shell_command_t shell_commands[] = {
-    { "coap", "Starts X amount of coap clients", coap_cmd },
+    { "coap", "Starts X amount of coap clients", coap_client_setup },
+    { "coap2", "Starts X amount of coap clients", coap_cmd },
     { NULL, NULL, NULL }
 };
 
@@ -67,10 +70,30 @@ int coap_cmd(int argc, char **argv){
     strcat(comm,num);
     status=system(comm);
     }
-//TODO
 //Create Tap devices
-
+    for (i=0;i<tap_num;i++){
+    sprintf(num,"%d",i);
+    strcpy(comm,"ip tuntap add tap");
+    strcat(comm,num);
+    strcat(comm," mode tap user ${USER}");
+    status=system(comm);
+    }
+//Set Tap up
+    for (i=0;i<tap_num;i++){
+    sprintf(num,"%d",i);
+    strcpy(comm,"ip link set tap");
+    strcat(comm,num);
+    strcat(comm," up");
+    status=system(comm);
+    }
 //Start Coap Clients
+    for (i=0;i<tap_num;i++){
+    sprintf(num,"%d",i);
+    strcpy(comm,"xterm -hold ./coap/bin/native/coap.elf ");
+    strcat(comm,num);
+    strcat(comm," &");
+    status=system(comm);
+    }
     (void)status;
     return 0;
 }

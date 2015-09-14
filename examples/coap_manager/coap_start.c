@@ -45,23 +45,69 @@
 #include <linux/if_ether.h>
 
 #include "coap.h"
-
+#include <pthread.h>
 
 #define PORT 5683
 
-int main(int argc, char **argv)
+void *coap_client_start(void *arg);
+
+int coap_client_setup(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
+//READ IN HOW MANY TAP DEVICE TO CREATE (MAX 9999)
+    if(argc<2)
+    return -1;
+    int tap_num;
+    if(strlen(argv[1]) == 1){
+	tap_num=(int)(argv[1][0] - '0');
+    }
+    else if (strlen(argv[1]) == 2){
+	tap_num=10*(int)(argv[1][0] - '0')+(int)(argv[1][1] - '0');
+    }
+    else if (strlen(argv[1]) == 3){
+	tap_num=100 * (int)(argv[1][0] - '0') + 10 * (int)(argv[1][1] - '0') + (int)(argv[1][2] - '0');
+    }
+    else if (strlen(argv[1]) == 4){
+	tap_num= 1000 * (int)(argv[1][0] - '0') + 100 * (int)(argv[1][1] - '0') + 10*(int)(argv[1][2] - '0') + (int)(argv[1][3] - '0');
+    }
+    else
+	return -1;
+//CREATE TAP DEVICE
+printf("tap_num= %d\n",tap_num);
+    char num[10];
+    char comm[50];
+    int status;
+    strcpy(comm,"sysctl net.ipv6.conf.all.forwarding=1");
+    status=system(comm);
+    sprintf(num,"%d",tap_num);
+//Delete previous Taps
+    
+    strcpy(comm,"ip link delete tap");
+    strcat(comm,num);
+    status=system(comm);
+//Create Tap devices
+    strcpy(comm,"ip tuntap add tap");
+    strcat(comm,num);
+    strcat(comm," mode tap user ${USER}");
+    status=system(comm);
+    
+//Set Tap up
+    strcpy(comm,"ip link set tap");
+    strcat(comm,num);
+    strcat(comm," up");
+    status=system(comm);
+
     puts("Starting the RIOT\n");
     int fd,tap_fd;
     const char *clonedev = "/dev/net/tun";
-    char *name = "tap0";
-    struct sockaddr_in6 servaddr, cliaddr;
+    //char num[10];
+    //sprintf(num,"%d",argv[1]);
+    char name[30] = "tap";
+    strcat(name,argv[1]);
+printf("%s\n",name);
+
+    struct sockaddr_in6 servaddr;
     struct ifreq ifr;
-    uint8_t buf[4096];
-    uint8_t scratch_raw[4096];
-    coap_rw_buffer_t scratch_buf = {scratch_raw, sizeof(scratch_raw)};
+    
 
     fd = socket(AF_INET6,SOCK_DGRAM,0);//Socket file descriptor init
 
@@ -83,8 +129,9 @@ int main(int argc, char **argv)
     servaddr.sin6_addr.s6_addr[11] = (uint8_t)0x22;
     servaddr.sin6_addr.s6_addr[12] = (uint8_t)0x33;//IPv6 Address 7
     servaddr.sin6_addr.s6_addr[13] = (uint8_t)0x33;
-    servaddr.sin6_addr.s6_addr[14] = (uint8_t)0x00;//IPv6 Address 8
-    servaddr.sin6_addr.s6_addr[15] = (uint8_t)0x01;
+    servaddr.sin6_addr.s6_addr[14] = (uint8_t)0x00;//IPv6 Address 8 //TODO
+    servaddr.sin6_addr.s6_addr[15] = (uint8_t)tap_num;
+printf("inet6 = %d\n", (uint8_t)tap_num);
 
 
 
@@ -105,19 +152,39 @@ int main(int argc, char **argv)
         warnx("probably the tap interface (%s) does not exist or is already in use", name);
         real_exit(EXIT_FAILURE);
     }
-//TODO Add Global IP
+//Add Global IP to TAP
+    strcpy(comm,"ip addr add 3000::1111:2222:3333:");
+    strcat(comm,argv[1]);
+    strcat(comm,"/64 dev tap");
+    strcat(comm,argv[1]);
+    status=system(comm);
+    (void)status;
 
+//New thread for all Clients
+//TODO
+//pthread_t thread_id;
 
+//   pthread_create(&thread_id, NULL, coap_client_start, &fd);
 
+//printf("Clients are up and running!\n");
+//return 0;
+
+//}
+
+//TODO
+
+    int fd_tap = fd;
+    struct sockaddr_in6 cliaddr;
+    uint8_t buf[4096];
+    uint8_t scratch_raw[4096];
+    coap_rw_buffer_t scratch_buf = {scratch_raw, sizeof(scratch_raw)};
     endpoint_setup();
-
     while(1)
     {
         int n, rc;
         socklen_t len = sizeof(cliaddr);
         coap_packet_t pkt;
-
-        n = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *)&cliaddr, &len);
+        n = recvfrom(fd_tap, buf, sizeof(buf), 0, (struct sockaddr *)&cliaddr, &len);
 //#ifdef DEBUG
         printf("Received: ");
         coap_dump(buf, n, true);
@@ -148,7 +215,7 @@ int main(int argc, char **argv)
                 coap_dumpPacket(&rsppkt);
 #endif
 
-                sendto(fd, buf, rsplen, 0, (struct sockaddr *)&cliaddr, sizeof(cliaddr));
+                sendto(fd_tap, buf, rsplen, 0, (struct sockaddr *)&cliaddr, sizeof(cliaddr));
             }
         }
     }

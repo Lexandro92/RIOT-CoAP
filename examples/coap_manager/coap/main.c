@@ -46,17 +46,21 @@
 
 #include "coap.h"
 
-
 #define PORT 5683
+
 
 int main(int argc, char **argv)
 {
     (void)argc;
-    (void)argv;
+    //(void)argv;
     puts("Starting the RIOT\n");
     int fd,tap_fd;
     const char *clonedev = "/dev/net/tun";
-    char *name = "tap0";
+    //char num[10];
+    //sprintf(num,"%d",argv[1]);
+    char name[30] = "tap";
+    strcat(name,argv[1]);
+printf("%s\n",name);
     struct sockaddr_in6 servaddr, cliaddr;
     struct ifreq ifr;
     uint8_t buf[4096];
@@ -84,7 +88,7 @@ int main(int argc, char **argv)
     servaddr.sin6_addr.s6_addr[12] = (uint8_t)0x33;//IPv6 Address 7
     servaddr.sin6_addr.s6_addr[13] = (uint8_t)0x33;
     servaddr.sin6_addr.s6_addr[14] = (uint8_t)0x00;//IPv6 Address 8
-    servaddr.sin6_addr.s6_addr[15] = (uint8_t)0x01;
+    servaddr.sin6_addr.s6_addr[15] = (uint8_t)0x00;
 
 
 
