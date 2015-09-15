@@ -24,7 +24,6 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <stdio.h>
 #include <stdbool.h>
 #include <strings.h>
 #include <string.h>
@@ -35,7 +34,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
-#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include "native_internal.h"
@@ -45,27 +43,102 @@
 #include <linux/if_ether.h>
 
 #include "coap.h"
+#include <fcntl.h>
+#include <unistd.h>
 
 #define PORT 5683
 
+void *coap_client_start(void *arg);
+void RemoveSpaces(char* source);
 
-int main(int argc, char **argv)
-{
-    (void)argc;
-    //(void)argv;
+int main(void){
+
+//READ IN HOW MANY TAP DEVICE TO CREATE (MAX 9999)
+char  file_num[3];
+//File locker
+    struct flock fl;
+    fl.l_type   = F_RDLCK;  /* F_RDLCK, F_WRLCK, F_UNLCK    */
+    fl.l_whence = SEEK_SET; /* SEEK_SET, SEEK_CUR, SEEK_END */
+    fl.l_start  = 0;        /* Offset from l_whence         */
+    fl.l_len    = 0;        /* length, 0 = to EOF           */
+    fl.l_pid    = getpid(); /* our PID                      */
+//Open File
+    int fp = open("./coap/tap_control.txt", O_RDONLY);
+    if(0 > fp)
+    {
+        printf("\n fopen() Error!!!\n");
+        return 1;
+    }
+    fcntl(fp, F_SETLKW, &fl);  //Locks the file for writing
+    read(fp,file_num,1);
+//Unlock file
+    fl.l_type = F_UNLCK;  /* tell it to unlock the region */
+    fcntl(fp, F_SETLK, &fl); /* set the region to unlocked */
+    close(fp);
+
+int tap_num = (int)(file_num[0] - '0');
+printf("FILE READ: %d\n",tap_num);
+
+/*
+    if(argc<2)
+    return -1;
+    int tap_num;
+    if(strlen(argv[1]) == 1){
+	tap_num=(int)(argv[1][0] - '0');
+    }
+    else if (strlen(argv[1]) == 2){
+	tap_num=10*(int)(argv[1][0] - '0')+(int)(argv[1][1] - '0');
+    }
+    else if (strlen(argv[1]) == 3){
+	tap_num=100 * (int)(argv[1][0] - '0') + 10 * (int)(argv[1][1] - '0') + (int)(argv[1][2] - '0');
+    }
+    else if (strlen(argv[1]) == 4){
+	tap_num= 1000 * (int)(argv[1][0] - '0') + 100 * (int)(argv[1][1] - '0') + 10*(int)(argv[1][2] - '0') + (int)(argv[1][3] - '0');
+    }
+    else
+	return -1;*/
+//CREATE TAP DEVICE
+    char num[10];
+    char comm[50];
+    int status;
+    //strcpy(comm,"sysctl net.ipv6.conf.all.forwarding=1");
+    //status=system(comm);
+    sprintf(num,"%d",tap_num);
+    RemoveSpaces(num);
+//Delete previous Taps
+    
+    strcpy(comm,"ip link delete tap0");
+    //strcat(comm,num);
+    status=system(comm);
+//Create Tap devices
+    strcpy(comm,"ip tuntap add tap0");
+    //strcat(comm,num);
+    strcat(comm," mode tap user ${USER}");
+    status=system(comm);
+    
+//Set Tap up
+    strcpy(comm,"ip link set tap0");
+    //strcat(comm,num);
+    strcat(comm," up");
+    status=system(comm);
+//Add Global IP to TAP
+    strcpy(comm,"ip -6 addr add 3000::1111:2222:3333:1");
+    //strcat(comm,num);
+    strcat(comm,"/64 dev tap0");
+    //strcat(comm,num);
+    status=system(comm);
+    (void)status;
+
     puts("Starting the RIOT\n");
     int fd,tap_fd;
     const char *clonedev = "/dev/net/tun";
-    //char num[10];
-    //sprintf(num,"%d",argv[1]);
-    char name[30] = "tap";
-    strcat(name,argv[1]);
+    char name[] = "tap0";
+    //strcat(name,num);
 printf("%s\n",name);
-    struct sockaddr_in6 servaddr, cliaddr;
+
+    struct sockaddr_in6 servaddr;
     struct ifreq ifr;
-    uint8_t buf[4096];
-    uint8_t scratch_raw[4096];
-    coap_rw_buffer_t scratch_buf = {scratch_raw, sizeof(scratch_raw)};
+    
 
     fd = socket(AF_INET6,SOCK_DGRAM,0);//Socket file descriptor init
 
@@ -87,8 +160,9 @@ printf("%s\n",name);
     servaddr.sin6_addr.s6_addr[11] = (uint8_t)0x22;
     servaddr.sin6_addr.s6_addr[12] = (uint8_t)0x33;//IPv6 Address 7
     servaddr.sin6_addr.s6_addr[13] = (uint8_t)0x33;
-    servaddr.sin6_addr.s6_addr[14] = (uint8_t)0x00;//IPv6 Address 8
-    servaddr.sin6_addr.s6_addr[15] = (uint8_t)0x00;
+    servaddr.sin6_addr.s6_addr[14] = (uint8_t)0x00;//IPv6 Address 8 //TODO
+    servaddr.sin6_addr.s6_addr[15] = (uint8_t)0x01;
+printf("inet6 = %d\n", (uint8_t)tap_num);
 
 
 
@@ -109,19 +183,20 @@ printf("%s\n",name);
         warnx("probably the tap interface (%s) does not exist or is already in use", name);
         real_exit(EXIT_FAILURE);
     }
-//TODO Add Global IP
 
 
-
+    int fd_tap = fd;
+    struct sockaddr_in6 cliaddr;
+    uint8_t buf[4096];
+    uint8_t scratch_raw[4096];
+    coap_rw_buffer_t scratch_buf = {scratch_raw, sizeof(scratch_raw)};
     endpoint_setup();
-
     while(1)
     {
         int n, rc;
         socklen_t len = sizeof(cliaddr);
         coap_packet_t pkt;
-
-        n = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *)&cliaddr, &len);
+        n = recvfrom(fd_tap, buf, sizeof(buf), 0, (struct sockaddr *)&cliaddr, &len);
 //#ifdef DEBUG
         printf("Received: ");
         coap_dump(buf, n, true);
@@ -152,8 +227,21 @@ printf("%s\n",name);
                 coap_dumpPacket(&rsppkt);
 #endif
 
-                sendto(fd, buf, rsplen, 0, (struct sockaddr *)&cliaddr, sizeof(cliaddr));
+                sendto(fd_tap, buf, rsplen, 0, (struct sockaddr *)&cliaddr, sizeof(cliaddr));
             }
         }
     }
+}
+
+void RemoveSpaces(char* source)
+{
+  char* i = source;
+  char* j = source;
+  while(*j != 0)
+  {
+    *i = *j++;
+    if(*i != ' ')
+      i++;
+  }
+  *i = 0;
 }

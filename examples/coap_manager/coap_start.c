@@ -95,13 +95,18 @@ printf("tap_num= %d\n",tap_num);
     strcat(comm,num);
     strcat(comm," up");
     status=system(comm);
+//Add Global IP to TAP
+    strcpy(comm,"ip -6 addr add 3000::1111:2222:3333:");
+    strcat(comm,argv[1]);
+    strcat(comm,"/64 dev tap");
+    strcat(comm,argv[1]);
+    status=system(comm);
+    (void)status;
 
     puts("Starting the RIOT\n");
     int fd,tap_fd;
     const char *clonedev = "/dev/net/tun";
-    //char num[10];
-    //sprintf(num,"%d",argv[1]);
-    char name[30] = "tap";
+    char name[] = "tap";
     strcat(name,argv[1]);
 printf("%s\n",name);
 
@@ -152,26 +157,7 @@ printf("inet6 = %d\n", (uint8_t)tap_num);
         warnx("probably the tap interface (%s) does not exist or is already in use", name);
         real_exit(EXIT_FAILURE);
     }
-//Add Global IP to TAP
-    strcpy(comm,"ip addr add 3000::1111:2222:3333:");
-    strcat(comm,argv[1]);
-    strcat(comm,"/64 dev tap");
-    strcat(comm,argv[1]);
-    status=system(comm);
-    (void)status;
 
-//New thread for all Clients
-//TODO
-//pthread_t thread_id;
-
-//   pthread_create(&thread_id, NULL, coap_client_start, &fd);
-
-//printf("Clients are up and running!\n");
-//return 0;
-
-//}
-
-//TODO
 
     int fd_tap = fd;
     struct sockaddr_in6 cliaddr;
