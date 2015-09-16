@@ -54,7 +54,7 @@ void RemoveSpaces(char* source);
 int main(void){
 
 //READ IN HOW MANY TAP DEVICE TO CREATE (MAX 9999)
-char  file_num[3];
+char  file_num[4];
 //File locker
     struct flock fl;
     fl.l_type   = F_RDLCK;  /* F_RDLCK, F_WRLCK, F_UNLCK    */
@@ -66,15 +66,19 @@ char  file_num[3];
     int fp = open("./coap/tap_control.txt", O_RDONLY);
     if(0 > fp)
     {
-        printf("\n fopen() Error!!!\n");
+        printf("\n open() Error!!!\n");
         return 1;
     }
-    fcntl(fp, F_SETLKW, &fl);  //Locks the file for writing
-    read(fp,file_num,1);
+    fcntl(fp, F_SETLKW, &fl);  //Locks the file for reading
+    read(fp,file_num,4);
 //Unlock file
     fl.l_type = F_UNLCK;  /* tell it to unlock the region */
     fcntl(fp, F_SETLK, &fl); /* set the region to unlocked */
-    close(fp);
+    if(0 > close(fp))
+    {
+        printf("\n close() Error!!!\n");
+        return 1;
+    }
 
 int tap_num = (int)(file_num[0] - '0');
 printf("FILE READ: %d\n",tap_num);
@@ -98,48 +102,63 @@ printf("FILE READ: %d\n",tap_num);
     else
 	return -1;*/
 //CREATE TAP DEVICE
-    char num[10];
-    char comm[50];
+//    char comm[50];//
     int status;
-    //strcpy(comm,"sysctl net.ipv6.conf.all.forwarding=1");
-    //status=system(comm);
-    sprintf(num,"%d",tap_num);
-    RemoveSpaces(num);
+    char num[4];
+    strcpy(num,file_num);
+    puts("Starting the RIOT\n");
+    int fd;//,tap_fd;//
+//    const char *clonedev = "/dev/net/tun";//
+    char name[7];
+    strcpy(name,"tap");
+    strcat(name,num);
+
+printf("TAP DEIVCE: %s\n",name);
+
+    struct sockaddr_in6 servaddr;
+//    struct ifreq ifr;//
+    struct sockaddr_in6 cliaddr;
+    uint8_t buf[4096];
+    uint8_t scratch_raw[4096];
+    coap_rw_buffer_t scratch_buf = {scratch_raw, sizeof(scratch_raw)};
+//NEEDS TO RUN ONCE START
+/*
 //Delete previous Taps
-    
-    strcpy(comm,"ip link delete tap0");
-    //strcat(comm,num);
+    strcpy(comm,"ip link delete tap");
+    strcat(comm,num);
     status=system(comm);
 //Create Tap devices
-    strcpy(comm,"ip tuntap add tap0");
-    //strcat(comm,num);
+    strcpy(comm,"ip tuntap add tap");
+    strcat(comm,num);
     strcat(comm," mode tap user ${USER}");
     status=system(comm);
-    
 //Set Tap up
-    strcpy(comm,"ip link set tap0");
-    //strcat(comm,num);
+    strcpy(comm,"ip link set tap");
+    strcat(comm,num);
     strcat(comm," up");
     status=system(comm);
 //Add Global IP to TAP
-    strcpy(comm,"ip -6 addr add 3000::1111:2222:3333:1");
-    //strcat(comm,num);
-    strcat(comm,"/64 dev tap0");
-    //strcat(comm,num);
-    status=system(comm);
+    strcpy(comm,"ip -6 addr add 3000::1111:2222:3333:");
+    strcat(comm,num);
+    strcat(comm,"/64 dev tap");
+    strcat(comm,num);
+    status=system(comm);*/
     (void)status;
-
-    puts("Starting the RIOT\n");
-    int fd,tap_fd;
-    const char *clonedev = "/dev/net/tun";
-    char name[] = "tap0";
-    //strcat(name,num);
-printf("%s\n",name);
-
-    struct sockaddr_in6 servaddr;
-    struct ifreq ifr;
-    
-
+//Set TAP device up, give it local ipv6 address
+    /* implicitly create the tap interface */
+/*    if ((tap_fd = real_open(clonedev , O_RDWR)) == -1) {
+        err(EXIT_FAILURE, "open(%s)", clonedev);
+    }
+    memset(&ifr, 0, sizeof(ifr));
+    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+    strncpy(ifr.ifr_name, name, IFNAMSIZ);
+    if (real_ioctl(tap_fd, TUNSETIFF, (void *)&ifr) == -1) {
+        _native_in_syscall++;
+        warn("ioctl TUNSETIFF");
+        warnx("probably the tap interface (%s) does not exist or is already in use", name);
+        real_exit(EXIT_FAILURE);
+    }*/
+//NEEDS TO RUN ONCE END    
     fd = socket(AF_INET6,SOCK_DGRAM,0);//Socket file descriptor init
 
     bzero(&servaddr,sizeof(servaddr));
@@ -161,42 +180,18 @@ printf("%s\n",name);
     servaddr.sin6_addr.s6_addr[12] = (uint8_t)0x33;//IPv6 Address 7
     servaddr.sin6_addr.s6_addr[13] = (uint8_t)0x33;
     servaddr.sin6_addr.s6_addr[14] = (uint8_t)0x00;//IPv6 Address 8 //TODO
-    servaddr.sin6_addr.s6_addr[15] = (uint8_t)0x01;
-printf("inet6 = %d\n", (uint8_t)tap_num);
-
-
+    servaddr.sin6_addr.s6_addr[15] = (uint8_t)tap_num;
 
     servaddr.sin6_port = htons(PORT);		//PORT (5683)
     bind(fd,(struct sockaddr *)&servaddr, sizeof(servaddr));
-
-//Set TAP device up, give it local ipv6 address
-    /* implicitly create the tap interface */
-    if ((tap_fd = real_open(clonedev , O_RDWR)) == -1) {
-        err(EXIT_FAILURE, "open(%s)", clonedev);
-    }
-    memset(&ifr, 0, sizeof(ifr));
-    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
-    strncpy(ifr.ifr_name, name, IFNAMSIZ);
-    if (real_ioctl(tap_fd, TUNSETIFF, (void *)&ifr) == -1) {
-        _native_in_syscall++;
-        warn("ioctl TUNSETIFF");
-        warnx("probably the tap interface (%s) does not exist or is already in use", name);
-        real_exit(EXIT_FAILURE);
-    }
-
-
-    int fd_tap = fd;
-    struct sockaddr_in6 cliaddr;
-    uint8_t buf[4096];
-    uint8_t scratch_raw[4096];
-    coap_rw_buffer_t scratch_buf = {scratch_raw, sizeof(scratch_raw)};
     endpoint_setup();
+
     while(1)
     {
         int n, rc;
         socklen_t len = sizeof(cliaddr);
         coap_packet_t pkt;
-        n = recvfrom(fd_tap, buf, sizeof(buf), 0, (struct sockaddr *)&cliaddr, &len);
+        n = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *)&cliaddr, &len);
 //#ifdef DEBUG
         printf("Received: ");
         coap_dump(buf, n, true);
@@ -227,21 +222,8 @@ printf("inet6 = %d\n", (uint8_t)tap_num);
                 coap_dumpPacket(&rsppkt);
 #endif
 
-                sendto(fd_tap, buf, rsplen, 0, (struct sockaddr *)&cliaddr, sizeof(cliaddr));
+                sendto(fd, buf, rsplen, 0, (struct sockaddr *)&cliaddr, sizeof(cliaddr));
             }
         }
     }
-}
-
-void RemoveSpaces(char* source)
-{
-  char* i = source;
-  char* j = source;
-  while(*j != 0)
-  {
-    *i = *j++;
-    if(*i != ' ')
-      i++;
-  }
-  *i = 0;
 }
