@@ -43,7 +43,6 @@
 #include <linux/if_ether.h>
 
 #include "coap.h"
-#include <fcntl.h>
 #include <unistd.h>
 
 #define PORT 5683
@@ -54,7 +53,6 @@ void RemoveSpaces(char* source);
 int main(void){
 
 //READ IN HOW MANY TAP DEVICE TO CREATE (MAX 9999)
-char  file_num[4];
 //File locker
     struct flock fl;
     fl.l_type   = F_RDLCK;  /* F_RDLCK, F_WRLCK, F_UNLCK    */
@@ -62,58 +60,81 @@ char  file_num[4];
     fl.l_start  = 0;        /* Offset from l_whence         */
     fl.l_len    = 0;        /* length, 0 = to EOF           */
     fl.l_pid    = getpid(); /* our PID                      */
-//Open File
-    int fp = open("./coap/tap_control.txt", O_RDONLY);
+
+//READ THE SIZE OF TAP_CONTROL_SIZE FILE
+    char  ffile_size[2];
+    int file_size,tap_num;
+    int fp = open("./coap/tap_control_size.txt", O_RDONLY);
     if(0 > fp)
     {
-        printf("\n open() Error!!!\n");
+        printf("\n tap_control_size:open() Error!!!\n");
         return 1;
     }
     fcntl(fp, F_SETLKW, &fl);  //Locks the file for reading
-    read(fp,file_num,4);
-//Unlock file
+    read(fp,ffile_size,2);
+//CLOSE FILE
     fl.l_type = F_UNLCK;  /* tell it to unlock the region */
     fcntl(fp, F_SETLK, &fl); /* set the region to unlocked */
     if(0 > close(fp))
     {
-        printf("\n close() Error!!!\n");
+        printf("\n tap_control_size:close() Error!!!\n");
+        return 1;
+    }
+    file_size = (int)(ffile_size[0] - '0');
+//OPEN FILE TO DETERMINE WHICH CLIENT IS THIS ONE
+    char  file_num[file_size];
+    fl.l_type   = F_RDLCK;
+    fp = open("./coap/tap_control.txt", O_RDONLY);
+    if(0 > fp)
+    {
+        printf("\n tap_control:open() Error!!!\n");
+        return 1;
+    }
+    fcntl(fp, F_SETLKW, &fl);  //Locks the file for reading
+    read(fp,file_num,file_size);
+    fl.l_type = F_UNLCK;  /* tell it to unlock the region */
+    fcntl(fp, F_SETLK, &fl); /* set the region to unlocked */
+//CLOSE FILE
+    if(0 > close(fp))
+    {
+        printf("\n tap_control:close() Error!!!\n");
         return 1;
     }
 
-int tap_num = (int)(file_num[0] - '0');
-printf("FILE READ: %d\n",tap_num);
+//CONVERT IT TO INT
+    tap_num=0;
+    if(file_size == 4){
+	tap_num += (int)(file_num[0] - '0')*1000;
+	tap_num += (int)(file_num[1] - '0')*100;
+	tap_num += (int)(file_num[2] - '0')*10;
+	tap_num += (int)(file_num[3] - '0');
+    }
+    else if(file_size == 3){
+	tap_num += (int)(file_num[0] - '0')*100;
+	tap_num += (int)(file_num[1] - '0')*10;
+	tap_num += (int)(file_num[2] - '0');
+    }
+    else if(file_size == 2){
+	tap_num += (int)(file_num[0] - '0')*10;
+	tap_num += (int)(file_num[1] - '0');
+    }
+    else 
+	tap_num += (int)(file_num[0] - '0');
 
-/*
-    if(argc<2)
-    return -1;
-    int tap_num;
-    if(strlen(argv[1]) == 1){
-	tap_num=(int)(argv[1][0] - '0');
-    }
-    else if (strlen(argv[1]) == 2){
-	tap_num=10*(int)(argv[1][0] - '0')+(int)(argv[1][1] - '0');
-    }
-    else if (strlen(argv[1]) == 3){
-	tap_num=100 * (int)(argv[1][0] - '0') + 10 * (int)(argv[1][1] - '0') + (int)(argv[1][2] - '0');
-    }
-    else if (strlen(argv[1]) == 4){
-	tap_num= 1000 * (int)(argv[1][0] - '0') + 100 * (int)(argv[1][1] - '0') + 10*(int)(argv[1][2] - '0') + (int)(argv[1][3] - '0');
-    }
-    else
-	return -1;*/
 //CREATE TAP DEVICE
-//    char comm[50];//
-    int status;
-    char num[4];
-    strcpy(num,file_num);
+    //char num[file_size];
+    //strcpy(num,file_num);
     puts("Starting the RIOT\n");
-    int fd;//,tap_fd;//
-//    const char *clonedev = "/dev/net/tun";//
-    char name[7];
+    int fd;
+    char name[3+file_size];
     strcpy(name,"tap");
-    strcat(name,num);
+    int i;
+    for(i=0;i<file_size;i++)
+    name[3+i]=file_num[i];
+    name[3+file_size]=0;
+    //strcat(name,file_num);
 
-printf("TAP DEIVCE: %s\n",name);
+    printf("TAP DEIVCE: %s\n",name);
 
     struct sockaddr_in6 servaddr;
 //    struct ifreq ifr;//
@@ -121,50 +142,14 @@ printf("TAP DEIVCE: %s\n",name);
     uint8_t buf[4096];
     uint8_t scratch_raw[4096];
     coap_rw_buffer_t scratch_buf = {scratch_raw, sizeof(scratch_raw)};
-//NEEDS TO RUN ONCE START
-/*
-//Delete previous Taps
-    strcpy(comm,"ip link delete tap");
-    strcat(comm,num);
-    status=system(comm);
-//Create Tap devices
-    strcpy(comm,"ip tuntap add tap");
-    strcat(comm,num);
-    strcat(comm," mode tap user ${USER}");
-    status=system(comm);
-//Set Tap up
-    strcpy(comm,"ip link set tap");
-    strcat(comm,num);
-    strcat(comm," up");
-    status=system(comm);
-//Add Global IP to TAP
-    strcpy(comm,"ip -6 addr add 3000::1111:2222:3333:");
-    strcat(comm,num);
-    strcat(comm,"/64 dev tap");
-    strcat(comm,num);
-    status=system(comm);*/
-    (void)status;
-//Set TAP device up, give it local ipv6 address
-    /* implicitly create the tap interface */
-/*    if ((tap_fd = real_open(clonedev , O_RDWR)) == -1) {
-        err(EXIT_FAILURE, "open(%s)", clonedev);
-    }
-    memset(&ifr, 0, sizeof(ifr));
-    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
-    strncpy(ifr.ifr_name, name, IFNAMSIZ);
-    if (real_ioctl(tap_fd, TUNSETIFF, (void *)&ifr) == -1) {
-        _native_in_syscall++;
-        warn("ioctl TUNSETIFF");
-        warnx("probably the tap interface (%s) does not exist or is already in use", name);
-        real_exit(EXIT_FAILURE);
-    }*/
-//NEEDS TO RUN ONCE END    
+   
     fd = socket(AF_INET6,SOCK_DGRAM,0);//Socket file descriptor init
 
     bzero(&servaddr,sizeof(servaddr));
     servaddr.sin6_family = AF_INET6;//inet family
     servaddr.sin6_flowinfo = 0;//??
 
+    int ip8_1=0,ip8_2=0;
     servaddr.sin6_addr.s6_addr[0] = (uint8_t)0x30;//IPv6 Address 1
     servaddr.sin6_addr.s6_addr[1] = (uint8_t)0x00;
     servaddr.sin6_addr.s6_addr[2] = (uint8_t)0x00;//IPv6 Address 2
@@ -179,8 +164,26 @@ printf("TAP DEIVCE: %s\n",name);
     servaddr.sin6_addr.s6_addr[11] = (uint8_t)0x22;
     servaddr.sin6_addr.s6_addr[12] = (uint8_t)0x33;//IPv6 Address 7
     servaddr.sin6_addr.s6_addr[13] = (uint8_t)0x33;
-    servaddr.sin6_addr.s6_addr[14] = (uint8_t)0x00;//IPv6 Address 8 //TODO
-    servaddr.sin6_addr.s6_addr[15] = (uint8_t)tap_num;
+    if(file_size == 4){
+	ip8_1 += (int)(file_num[0] - '0')*10;
+	ip8_1 += (int)(file_num[1] - '0');
+	ip8_2 += (int)(file_num[2] - '0')*10;
+	ip8_2 += (int)(file_num[3] - '0');
+    }
+    else if(file_size == 3){
+	ip8_1 += (int)(file_num[0] - '0');
+	ip8_2 += (int)(file_num[1] - '0')*10;
+	ip8_2 += (int)(file_num[2] - '0');
+    }
+    else if(file_size == 2){
+	ip8_2 += (int)(file_num[0] - '0')*10;
+	ip8_2 += (int)(file_num[1] - '0');
+    }
+    else 
+	ip8_2 += (int)(file_num[0] - '0');
+
+    servaddr.sin6_addr.s6_addr[14] = (uint8_t)ip8_1;//IPv6 Address 8 //TODO
+    servaddr.sin6_addr.s6_addr[15] = (uint8_t)ip8_2;
 
     servaddr.sin6_port = htons(PORT);		//PORT (5683)
     bind(fd,(struct sockaddr *)&servaddr, sizeof(servaddr));

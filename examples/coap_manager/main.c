@@ -39,30 +39,23 @@
 #include <assert.h>
 #include <err.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <inttypes.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include "native_internal.h"
 #include <net/if.h>
 #include <linux/if_tun.h>
 #include <linux/if_ether.h>
 
 
-extern int coap_client_setup(int argc, char **argv);
 int coap_cmd(int argc, char **argv);
 void end (void) __attribute__((destructor));
 
-
 static const shell_command_t shell_commands[] = {
-    { "coap2", "Starts X amount of coap clients", coap_client_setup },
     { "coap", "Starts X amount of coap clients", coap_cmd },
     { NULL, NULL, NULL }
 };
 
-int i,tap_num;
-int status;
-char num[4];
+int i,tap_num,status;
 char comm[50];
 
 int main(void)
@@ -81,18 +74,62 @@ int main(void)
 int coap_cmd(int argc, char **argv){
     (void)argc;
     (void)argv;
-
-    printf("Amount of CoAP clients you want: ");
-    scanf("%d",&tap_num);
-    strcpy(comm,"sysctl net.ipv6.conf.all.forwarding=1");
-    status=system(comm);
-//File for communication between the 2 source codes.
-    int fp = open("./coap/tap_control.txt", O_WRONLY | O_TRUNC);
+//READ THE SIZE OF TAP_AMOUNT FILE
+    char  ffile_size[2];
+    int file_size;
+    int fp = open("./set_tap_up/tap_char_size.txt", O_RDONLY);
     if(0 > fp)
     {
         printf("\n open() Error!!!\n");
         return 1;
     }
+    read(fp,ffile_size,2);
+//CLOSE FILE
+    if(0 > close(fp))
+    {
+        printf("\n close() Error!!!\n");
+        return 1;
+    }
+    file_size = (int)(ffile_size[0] - '0');
+//READ THE AMOUNT OF COAP CLIENTS TO BE CREATED
+    char  file_num[file_size];
+    fp = open("./set_tap_up/tap_amount.txt", O_RDONLY);
+    if(0 > fp)
+    {
+        printf("\n open() Error!!!\n");
+        return 1;
+    }
+    read(fp,file_num,file_size);
+//CLOSE FILE
+    if(0 > close(fp))
+    {
+        printf("\n close() Error!!!\n");
+        return 1;
+    }
+//CONVERT IT TO INT
+    tap_num=0;
+    if(file_size == 4){
+	tap_num += (int)(file_num[0] - '0')*1000;
+	tap_num += (int)(file_num[1] - '0')*100;
+	tap_num += (int)(file_num[2] - '0')*10;
+	tap_num += (int)(file_num[3] - '0');
+    }
+    else if(file_size == 3){
+	tap_num += (int)(file_num[0] - '0')*100;
+	tap_num += (int)(file_num[1] - '0')*10;
+	tap_num += (int)(file_num[2] - '0');
+    }
+    else if(file_size == 2){
+	tap_num += (int)(file_num[0] - '0')*10;
+	tap_num += (int)(file_num[1] - '0');
+    }
+    else 
+	tap_num += (int)(file_num[0] - '0');
+
+    printf("Amount of CoAP clients will be created: %d\n",tap_num);
+    strcpy(comm,"sysctl net.ipv6.conf.all.forwarding=1");
+    status=system(comm);
+
 //Initalize our file lock
     struct flock fl;
     fl.l_type   = F_WRLCK;  /* F_RDLCK, F_WRLCK, F_UNLCK    */
@@ -101,86 +138,64 @@ int coap_cmd(int argc, char **argv){
     fl.l_len    = 0;        /* length, 0 = to EOF           */
     fl.l_pid    = getpid(); /* our PID                      */
 
-//DEMO VARS
-struct ifreq ifr;
-const char *clonedev = "/dev/net/tun";
-char name[7];
-strcpy(name,"tap");
-strcat(name,num);
-int tap_fd;
-
+    int num_size=0;
+    char num_size2char[2];
 //Start Coap Clients
     for (i=0;i<tap_num;i++){
+	    fl.l_type = F_WRLCK;  // tell it to lock the region 
+	    fp = open("./coap/tap_control.txt", O_WRONLY | O_TRUNC);
+	    fcntl(fp, F_SETLKW, &fl);  //Locks the file for writing
+	    if(i/1000 >= 1.0)
+		num_size=4;
+    	    else if(i/100 >= 1.0)
+		num_size=3;
+     	    else if(i/10 >= 1.0)
+		num_size=2;
+    	    else 
+	        num_size=1;
+    	    char num_w[num_size];
+       	    sprintf(num_w,"%d",i);
+    	    write(fp,num_w,num_size);
+	    fl.l_type = F_UNLCK;  // tell it to unlock the region 
+	    fcntl(fp, F_SETLK, &fl); // set the region to unlocked 
+	    if(0 > close(fp))
+	    {
+		printf("\n close() Error!!!\n");
+		return 1;
+	    }
 
-    sprintf(num,"%d",i);
-    //num[1]=0;
-    fp = open("./coap/tap_control.txt", O_WRONLY | O_TRUNC);
-    fcntl(fp, F_SETLKW, &fl);  //Locks the file for writing
-    write(fp,num,4);
-    fl.l_type = F_UNLCK;  /* tell it to unlock the region */
-    fcntl(fp, F_SETLK, &fl); /* set the region to unlocked */
-    if(0 > close(fp))
-    {
-        printf("\n close() Error!!!\n");
-        return 1;
-    }
-//DEMO
+//SET FILE SIZE
+	    fp = open("./coap/tap_control_size.txt", O_WRONLY | O_TRUNC);
+	    fl.l_type = F_WRLCK;  // tell it to lock the region 
+	    fcntl(fp, F_SETLKW, &fl);  //Locks the file for writing
+	    strcpy(num_size2char,"");
+    	    sprintf(num_size2char,"%d",num_size);
+    	    write(fp,num_size2char,2);
+	    fl.l_type = F_UNLCK;  // tell it to unlock the region 
+	    fcntl(fp, F_SETLK, &fl); // set the region to unlocked 
+	    if(0 > close(fp))
+	    {
+		printf("\n close() Error!!!\n");
+		return 1;
+	    }
 
-    strcpy(name,"tap");
-    strcat(name,num);
-//Delete previous Taps
-    strcpy(comm,"ip link delete tap");
-    strcat(comm,num);
-    status=system(comm);
-//Create Tap devices
-    strcpy(comm,"ip tuntap add tap");
-    strcat(comm,num);
-    strcat(comm," mode tap user ${USER}");
-    status=system(comm);
-//Set Tap up
-    strcpy(comm,"ip link set tap");
-    strcat(comm,num);
-    strcat(comm," up");
-    status=system(comm);
-//Add Global IP to TAP
-    strcpy(comm,"ip -6 addr add 3000::1111:2222:3333:");
-    strcat(comm,num);
-    strcat(comm,"/64 dev tap");
-    strcat(comm,num);
-    status=system(comm);
-    (void)status;
-//Set TAP device up, give it local ipv6 address
-    if ((tap_fd = real_open(clonedev , O_RDWR)) == -1) {
-        err(EXIT_FAILURE, "open(%s)", clonedev);
-    }
-    memset(&ifr, 0, sizeof(ifr));
-    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
-    strncpy(ifr.ifr_name, name, IFNAMSIZ);
-    if (real_ioctl(tap_fd, TUNSETIFF, (void *)&ifr) == -1) {
-        _native_in_syscall++;
-        warn("ioctl TUNSETIFF");
-        warnx("probably the tap interface (%s) does not exist or is already in use", name);
-        real_exit(EXIT_FAILURE);
-    }
-
-//DEMO END
-
-    strcpy(comm,"xterm -hold ./coap/bin/native/coap.elf &");
-    status=system(comm);
-
-    struct timespec tim, tim2;
-    tim.tv_sec = 0;
-    tim.tv_nsec = 250000000;
-    nanosleep(&tim , &tim2);   
+	    strcpy(comm,"xterm -hold ./coap/bin/native/coap.elf &");
+	    status=system(comm);
+	    struct timespec tim, tim2;
+	    tim.tv_sec = 0;
+	    tim.tv_nsec = 250000000;
+	    nanosleep(&tim , &tim2);
     }
 
     (void)status;
     return 0;
 }
 
+
 //Destructor
 __attribute__((destructor)) void end (void)
 {
+    char num[4];
     for (i=0;i<tap_num;i++){
     	sprintf(num,"%d",i);
 	//Delete previous Taps
@@ -188,4 +203,7 @@ __attribute__((destructor)) void end (void)
   	strcat(comm,num);
    	status=system(comm);
     }
+//Kill CoAP clients
+  	strcpy(comm,"pkill -9 coap.elf");
+   	status=system(comm);
 }
