@@ -1,0 +1,1 @@
+CMD /mnt/RIOT/examples/coap_manager/coap/bin/native/coap.elf

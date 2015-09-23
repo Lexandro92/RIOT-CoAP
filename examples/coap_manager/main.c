@@ -29,6 +29,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/syscall.h>
 
 #include "shell.h"
 #include "coap.h"
@@ -132,11 +133,12 @@ int coap_cmd(int argc, char **argv){
 
 //Initalize our file lock
     struct flock fl;
+    pid_t tid = syscall(SYS_gettid);
     fl.l_type   = F_WRLCK;  /* F_RDLCK, F_WRLCK, F_UNLCK    */
     fl.l_whence = SEEK_SET; /* SEEK_SET, SEEK_CUR, SEEK_END */
     fl.l_start  = 0;        /* Offset from l_whence         */
     fl.l_len    = 0;        /* length, 0 = to EOF           */
-    fl.l_pid    = getpid(); /* our PID                      */
+    fl.l_pid    = tid; /* our PID                      */
 
     int num_size=0;
     char num_size2char[2];
@@ -156,13 +158,13 @@ int coap_cmd(int argc, char **argv){
     	    char num_w[num_size];
        	    sprintf(num_w,"%d",i);
     	    write(fp,num_w,num_size);
-	    fl.l_type = F_UNLCK;  // tell it to unlock the region 
-	    fcntl(fp, F_SETLK, &fl); // set the region to unlocked 
 	    if(0 > close(fp))
 	    {
 		printf("\n close() Error!!!\n");
 		return 1;
 	    }
+	    fl.l_type = F_UNLCK;  // tell it to unlock the region 
+	    fcntl(fp, F_SETLK, &fl); // set the region to unlocked 
 
 //SET FILE SIZE
 	    fp = open("./coap/tap_control_size.txt", O_WRONLY | O_TRUNC);
@@ -170,20 +172,20 @@ int coap_cmd(int argc, char **argv){
 	    fcntl(fp, F_SETLKW, &fl);  //Locks the file for writing
 	    strcpy(num_size2char,"");
     	    sprintf(num_size2char,"%d",num_size);
-    	    write(fp,num_size2char,2);
-	    fl.l_type = F_UNLCK;  // tell it to unlock the region 
-	    fcntl(fp, F_SETLK, &fl); // set the region to unlocked 
+    	    write(fp,num_size2char,2); 
 	    if(0 > close(fp))
 	    {
 		printf("\n close() Error!!!\n");
 		return 1;
 	    }
+	    fl.l_type = F_UNLCK;  // tell it to unlock the region 
+	    fcntl(fp, F_SETLK, &fl); // set the region to unlocked
 
 	    strcpy(comm,"xterm -hold ./coap/bin/native/coap.elf &");
 	    status=system(comm);
 	    struct timespec tim, tim2;
 	    tim.tv_sec = 0;
-	    tim.tv_nsec = 250000000;
+	    tim.tv_nsec = 550000000;
 	    nanosleep(&tim , &tim2);
     }
 

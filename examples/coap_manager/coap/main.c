@@ -44,6 +44,7 @@
 
 #include "coap.h"
 #include <unistd.h>
+#include <sys/syscall.h>
 
 #define PORT 5683
 
@@ -55,51 +56,53 @@ int main(void){
 //READ IN HOW MANY TAP DEVICE TO CREATE (MAX 9999)
 //File locker
     struct flock fl;
+    pid_t tid = syscall(SYS_gettid);
     fl.l_type   = F_RDLCK;  /* F_RDLCK, F_WRLCK, F_UNLCK    */
     fl.l_whence = SEEK_SET; /* SEEK_SET, SEEK_CUR, SEEK_END */
     fl.l_start  = 0;        /* Offset from l_whence         */
     fl.l_len    = 0;        /* length, 0 = to EOF           */
-    fl.l_pid    = getpid(); /* our PID                      */
+    fl.l_pid    = tid; /* our PID                      */
 
 //READ THE SIZE OF TAP_CONTROL_SIZE FILE
     char  ffile_size[2];
     int file_size,tap_num;
     int fp = open("./coap/tap_control_size.txt", O_RDONLY);
+    fcntl(fp, F_SETLKW, &fl);  //Locks the file for reading
     if(0 > fp)
     {
         printf("\n tap_control_size:open() Error!!!\n");
         return 1;
     }
-    fcntl(fp, F_SETLKW, &fl);  //Locks the file for reading
     read(fp,ffile_size,2);
 //CLOSE FILE
-    fl.l_type = F_UNLCK;  /* tell it to unlock the region */
-    fcntl(fp, F_SETLK, &fl); /* set the region to unlocked */
     if(0 > close(fp))
     {
         printf("\n tap_control_size:close() Error!!!\n");
         return 1;
     }
+    fl.l_type = F_UNLCK;  /* tell it to unlock the region */
+    fcntl(fp, F_SETLK, &fl); /* set the region to unlocked */
+
     file_size = (int)(ffile_size[0] - '0');
 //OPEN FILE TO DETERMINE WHICH CLIENT IS THIS ONE
     char  file_num[file_size];
     fl.l_type   = F_RDLCK;
     fp = open("./coap/tap_control.txt", O_RDONLY);
+    fcntl(fp, F_SETLKW, &fl);  //Locks the file for reading
     if(0 > fp)
     {
         printf("\n tap_control:open() Error!!!\n");
         return 1;
     }
-    fcntl(fp, F_SETLKW, &fl);  //Locks the file for reading
     read(fp,file_num,file_size);
-    fl.l_type = F_UNLCK;  /* tell it to unlock the region */
-    fcntl(fp, F_SETLK, &fl); /* set the region to unlocked */
 //CLOSE FILE
     if(0 > close(fp))
     {
         printf("\n tap_control:close() Error!!!\n");
         return 1;
     }
+    fl.l_type = F_UNLCK;  /* tell it to unlock the region */
+    fcntl(fp, F_SETLK, &fl); /* set the region to unlocked */
 
 //CONVERT IT TO INT
     tap_num=0;
@@ -122,8 +125,6 @@ int main(void){
 	tap_num += (int)(file_num[0] - '0');
 
 //CREATE TAP DEVICE
-    //char num[file_size];
-    //strcpy(num,file_num);
     puts("Starting the RIOT\n");
     int fd;
     char name[3+file_size];
@@ -132,7 +133,6 @@ int main(void){
     for(i=0;i<file_size;i++)
     name[3+i]=file_num[i];
     name[3+file_size]=0;
-    //strcat(name,file_num);
 
     printf("TAP DEIVCE: %s\n",name);
 
@@ -165,18 +165,18 @@ int main(void){
     servaddr.sin6_addr.s6_addr[12] = (uint8_t)0x33;//IPv6 Address 7
     servaddr.sin6_addr.s6_addr[13] = (uint8_t)0x33;
     if(file_size == 4){
-	ip8_1 += (int)(file_num[0] - '0')*10;
+	ip8_1 += (int)(file_num[0] - '0')*16;
 	ip8_1 += (int)(file_num[1] - '0');
-	ip8_2 += (int)(file_num[2] - '0')*10;
+	ip8_2 += (int)(file_num[2] - '0')*16;
 	ip8_2 += (int)(file_num[3] - '0');
     }
     else if(file_size == 3){
 	ip8_1 += (int)(file_num[0] - '0');
-	ip8_2 += (int)(file_num[1] - '0')*10;
+	ip8_2 += (int)(file_num[1] - '0')*16;
 	ip8_2 += (int)(file_num[2] - '0');
     }
     else if(file_size == 2){
-	ip8_2 += (int)(file_num[0] - '0')*10;
+	ip8_2 += (int)(file_num[0] - '0')*16;
 	ip8_2 += (int)(file_num[1] - '0');
     }
     else 
